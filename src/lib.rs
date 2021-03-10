@@ -6,10 +6,15 @@ use std::vec;
 
 use thiserror::Error;
 
-#[cfg(unix)]
+// Always include both oschars_unix and oschars_windows so they both get
+// type checked as much as possible.
+// Then pick the appropriate implementation.
 mod oschars_unix;
+mod oschars_windows;
 #[cfg(unix)]
 use oschars_unix::split_valid;
+#[cfg(windows)]
+use oschars_windows::split_valid;
 
 pub struct ArgWalker {
     next_args: vec::IntoIter<OsString>,

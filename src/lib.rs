@@ -1,5 +1,55 @@
+/*!
+Helper library for command line argument parsing.
+
+Struct [`ArgWalker`] allows you to conveniently iterate over flags and other
+options. It does not provide higher level features such as parsing into structs
+or automatically generating help text. Instead, it only provides the following
+services:
+
+1) Splitting combined single-dash flags such as `-xvf` into separate flags `-x`,
+   `-v` and `-f`.
+
+2) Dealing with flags with arguments such as `-fbanana` or `--fruit=banana`.
+   The latter may or may not be equivalent with `--fruit banana`.
+
+3) Correctly dealing with non-unicode arguments such as filenames, while
+   still working with regular strings wherever possible.
+
+The latter is necessary because Rust strings must be valid UTF-8 but on Unix,
+filenames can contain arbitrary byte sequences which are not necessarily
+UTF-8, while on Windows, filenames are composed of 16 bit sequences that
+usually but not necessarily can be decoded as UTF-16.
+
+# Example
+
+```
+# use argwalker::{ArgWalker,ArgError,Item};
+# fn main() -> Result<(), ArgError> {
+    let mut w = ArgWalker::new(&["eat", "-vfbanana"]);
+
+    assert_eq!(w.take_item(), Ok(Item::Word("eat")));
+
+    let mut verbose = false;
+    let mut fruit = None;
+    loop {
+        match w.take_item()? {
+            Item::End => break,
+            Item::Flag("-v") => verbose = true,
+            Item::Flag("-f") => fruit = Some(w.required_parameter(true)?),
+            x => panic!("unexpected argument {}. Usage: bla bla bla", x)
+        }
+    }
+    assert_eq!(verbose, true);
+    assert_eq!(fruit, Some("banana".to_string()));
+#    Ok(())
+# }
+```
+
+*/
+
 use std::default::Default;
 use std::ffi::{OsStr, OsString};
+use std::fmt;
 use std::mem;
 use std::str;
 use std::vec;
@@ -24,15 +74,37 @@ pub struct ArgWalker {
     flag_yielded: Option<String>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Item<'a> {
     Flag(&'a str),
     Word(&'a str),
     End,
 }
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub enum ItemOs<'a> {
     Flag(&'a str),
     Word(&'a OsStr),
     End,
+}
+
+impl fmt::Display for Item<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Item::Flag(flag) => flag.fmt(f),
+            Item::Word(word) => word.fmt(f),
+            Item::End => "End of arguments".fmt(f),
+        }
+    }
+}
+
+impl fmt::Display for ItemOs<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            ItemOs::Flag(flag) => flag.fmt(f),
+            ItemOs::Word(word) => word.to_string_lossy().fmt(f),
+            ItemOs::End => "End of arguments".fmt(f),
+        }
+    }
 }
 
 impl<'a> ItemOs<'a> {
@@ -48,7 +120,7 @@ impl<'a> ItemOs<'a> {
     }
 }
 
-#[derive(Debug, Clone, Error)]
+#[derive(Debug, Clone, Error, PartialEq, Eq)]
 pub enum ArgError {
     #[error("invalid unicode in argument {0:?}")]
     InvalidUnicode(OsString),

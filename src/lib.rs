@@ -27,16 +27,16 @@ usually but not necessarily can be decoded as UTF-16.
 # fn main() -> Result<(), ArgError> {
     let mut w = ArgWalker::new(&["eat", "-vfbanana"]);
 
-    assert_eq!(w.take_item(), Ok(Item::Word("eat")));
+    assert_eq!(w.take_item(), Ok(Some(Item::Word("eat"))));
 
     let mut verbose = false;
     let mut fruit = None;
     loop {
         match w.take_item()? {
-            Item::End => break,
-            Item::Flag("-v") => verbose = true,
-            Item::Flag("-f") => fruit = Some(w.required_parameter(true)?),
-            x => panic!("unexpected argument {}. Usage: bla bla bla", x)
+            None => break,
+            Some(Item::Flag("-v")) => verbose = true,
+            Some(Item::Flag("-f")) => fruit = Some(w.required_parameter(true)?),
+            Some(x) => panic!("unexpected argument {}. Usage: bla bla bla", x)
         }
     }
     assert_eq!(verbose, true);
@@ -78,13 +78,11 @@ pub struct ArgWalker {
 pub enum Item<'a> {
     Flag(&'a str),
     Word(&'a str),
-    End,
 }
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub enum ItemOs<'a> {
     Flag(&'a str),
     Word(&'a OsStr),
-    End,
 }
 
 impl fmt::Display for Item<'_> {
@@ -92,7 +90,6 @@ impl fmt::Display for Item<'_> {
         match self {
             Item::Flag(flag) => flag.fmt(f),
             Item::Word(word) => word.fmt(f),
-            Item::End => "End of arguments".fmt(f),
         }
     }
 }
@@ -102,20 +99,6 @@ impl fmt::Display for ItemOs<'_> {
         match self {
             ItemOs::Flag(flag) => flag.fmt(f),
             ItemOs::Word(word) => word.to_string_lossy().fmt(f),
-            ItemOs::End => "End of arguments".fmt(f),
-        }
-    }
-}
-
-impl<'a> ItemOs<'a> {
-    pub fn into_unicode(self) -> Result<Item<'a>, ArgError> {
-        match self {
-            ItemOs::Flag(f) => Ok(Item::Flag(f)),
-            ItemOs::Word(w) => match w.to_str() {
-                Some(s) => Ok(Item::Word(s)),
-                None => Err(ArgError::InvalidUnicode(OsString::from(w))),
-            },
-            ItemOs::End => Ok(Item::End),
         }
     }
 }
@@ -215,28 +198,28 @@ impl ArgWalker {
         }
     }
 
-    pub fn peek_item(&self) -> Result<Item<'_>, ArgError> {
-        self.peek_item_os().and_then(ItemOs::into_unicode)
+    pub fn peek_item(&self) -> Result<Option<Item<'_>>, ArgError> {
+        unicode_item_option_result(self.peek_item_os())
     }
 
-    pub fn peek_item_os(&self) -> Result<ItemOs<'_>, ArgError> {
+    pub fn peek_item_os(&self) -> Result<Option<ItemOs<'_>>, ArgError> {
         use ItemOs::*;
 
         match &self.state {
-            Long { flag, .. } => Ok(Flag(&flag)),
+            Long { flag, .. } => Ok(Some(Flag(&flag))),
             LongParm { flag, .. } => Err(ArgError::UnexpectedParameter(flag.to_string())),
-            Shorts { flag, .. } => Ok(Flag(&flag)),
-            NotOption(w) => Ok(Word(&w)),
-            Finished => Ok(End),
+            Shorts { flag, .. } => Ok(Some(Flag(&flag))),
+            NotOption(w) => Ok(Some(Word(&w))),
+            Finished => Ok(None),
             Failed(e) => Err(e.clone()),
         }
     }
 
-    pub fn take_item(&mut self) -> Result<Item<'_>, ArgError> {
-        self.take_item_os().and_then(ItemOs::into_unicode)
+    pub fn take_item(&mut self) -> Result<Option<Item<'_>>, ArgError> {
+        unicode_item_option_result(self.take_item_os())
     }
 
-    pub fn take_item_os(&mut self) -> Result<ItemOs<'_>, ArgError> {
+    pub fn take_item_os(&mut self) -> Result<Option<ItemOs<'_>>, ArgError> {
         use ItemOs::*;
         use State::*;
 
@@ -248,12 +231,12 @@ impl ArgWalker {
                 parm: Some(p),
             } => {
                 self.hold = flag.clone();
-                (LongParm { flag, parm: p }, Ok(Flag(&self.hold)))
+                (LongParm { flag, parm: p }, Ok(Some(Flag(&self.hold))))
             }
 
             Long { flag, parm: None } => {
                 self.hold = flag.clone();
-                (self.process_next_arg(), Ok(Flag(&self.hold)))
+                (self.process_next_arg(), Ok(Some(Flag(&self.hold))))
             }
 
             LongParm { flag, .. } => {
@@ -271,22 +254,25 @@ impl ArgWalker {
                 let st =
                     state_shorts(other_letters, tail).unwrap_or_else(|| self.process_next_arg());
                 self.hold = flag;
-                (st, Ok(Flag(&self.hold)))
+                (st, Ok(Some(Flag(&self.hold))))
             }
 
             NotOption(w) => {
                 self.hold_os = w;
-                (self.process_next_arg(), Ok(Word(&self.hold_os as &OsStr)))
+                (
+                    self.process_next_arg(),
+                    Ok(Some(Word(&self.hold_os as &OsStr))),
+                )
             }
 
-            Finished => (Finished, Ok(End)),
+            Finished => (Finished, Ok(None)),
 
             Failed(e) => (Failed(e.clone()), Err(e)),
         };
         self.state = new_state;
 
         match result {
-            Ok(Flag(f)) => self.flag_yielded = Some(f.to_string()),
+            Ok(Some(Flag(f))) => self.flag_yielded = Some(f.to_string()),
             Ok(_) => self.flag_yielded = None,
             _ => {}
         }
@@ -357,30 +343,39 @@ impl ArgWalker {
     pub fn take_flag(&mut self, skipped: &mut Vec<String>) -> Result<Option<&str>, ArgError> {
         loop {
             match self.peek_item()? {
-                Item::Flag(_) => break,
-                Item::Word(w) => skipped.push(String::from(w)),
-                Item::End => return Ok(None),
+                Some(Item::Flag(_)) => break,
+                Some(Item::Word(w)) => skipped.push(String::from(w)),
+                None => return Ok(None),
             }
         }
         match self.take_item_os()? {
-            ItemOs::Flag(f) => return Ok(Some(f)),
+            Some(ItemOs::Flag(f)) => return Ok(Some(f)),
             _ => unreachable!(),
         }
     }
+}
 
-    pub fn take_flag_os(&mut self, skipped: &mut Vec<OsString>) -> Result<Option<&str>, ArgError> {
-        loop {
-            match self.peek_item_os()? {
-                ItemOs::Flag(_) => break,
-                ItemOs::Word(w) => skipped.push(OsString::from(w)),
-                ItemOs::End => return Ok(None),
-            }
-        }
-        match self.take_item_os()? {
-            ItemOs::Flag(f) => return Ok(Some(f)),
-            _ => unreachable!(),
-        }
+pub fn unicode_item(item: ItemOs<'_>) -> Result<Item<'_>, ArgError> {
+    match item {
+        ItemOs::Flag(f) => Ok(Item::Flag(f)),
+        ItemOs::Word(w) => match w.to_str() {
+            Some(s) => Ok(Item::Word(s)),
+            None => Err(ArgError::InvalidUnicode(OsString::from(w))),
+        },
     }
+}
+
+pub fn unicode_item_option(item_opt: Option<ItemOs<'_>>) -> Result<Option<Item<'_>>, ArgError> {
+    match item_opt {
+        None => Ok(None),
+        Some(item) => unicode_item(item).map(Some),
+    }
+}
+
+pub fn unicode_item_option_result(
+    item_opt_res: Result<Option<ItemOs<'_>>, ArgError>,
+) -> Result<Option<Item<'_>>, ArgError> {
+    item_opt_res.and_then(unicode_item_option)
 }
 
 fn state_shorts(letters: &str, tail: OsString) -> Option<State> {

@@ -25,22 +25,24 @@ usually but not necessarily can be decoded as UTF-16.
 ```
 # use argwalker::{ArgWalker,ArgError,Item};
 # fn main() -> Result<(), ArgError> {
-    let mut w = ArgWalker::new(&["eat", "-vfbanana"]);
+    let mut w = ArgWalker::new(&["eat", "file1", "-vfbanana", "file2", "file3"]);
 
     assert_eq!(w.take_item(), Ok(Some(Item::Word("eat"))));
 
     let mut verbose = false;
     let mut fruit = None;
-    loop {
-        match w.take_item()? {
-            None => break,
-            Some(Item::Flag("-v")) => verbose = true,
-            Some(Item::Flag("-f")) => fruit = Some(w.required_parameter(true)?),
-            Some(x) => panic!("unexpected argument {}. Usage: bla bla bla", x)
+    let mut argcount = 0;
+    while let Some(item) = w.take_item()? {
+        match item {
+            Item::Flag("-v") => verbose = true,
+            Item::Flag("-f") => fruit = Some(w.required_parameter(true)?),
+            Item::Word(w) => argcount += 1,
+            x => panic!("unexpected argument {}. Usage: bla bla bla", x)
         }
     }
     assert_eq!(verbose, true);
     assert_eq!(fruit, Some("banana".to_string()));
+    assert_eq!(argcount, 3);
 #    Ok(())
 # }
 ```

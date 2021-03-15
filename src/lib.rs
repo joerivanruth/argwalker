@@ -68,6 +68,24 @@ use oschars_unix::split_valid;
 #[cfg(windows)]
 use oschars_windows::split_valid;
 
+/**
+Command line argument helper.
+
+Created from a sequence of command line arguments.
+Every call to [`.take_item()`][ArgWalker::take_item] doles out another flag or argument.
+Multi-letter arguments that start with a single dash are split into separate
+single letter flags, for example `-vf` becomes `-v` `-f`.
+Call [`.parameter()`][ArgWalker::parameter] to obtain the remaining letters as
+a string instead of splitting them into options.  For example, with `-xfbanana`,
+calling this method after receiving the `-f` will return `banana`.
+
+With double-dash flags such as `--fruit=banana`, [`.take_item()`][ArgWalker::take_item] returns `--fruit`.
+This must be followed by a call to [`.parameter()`][ArgWalker::parameter].
+If [`.parameter()`][ArgWalker::parameter] is not called, the next
+call to [`.take_item()`][ArgWalker::take_item] will yield [`ArgError::UnexpectedParameter`].
+
+All [`String`] returning methods have a `_os` variant which returns an [`OsString`] instead.
+*/
 pub struct ArgWalker {
     next_args: vec::IntoIter<OsString>,
     state: State,
@@ -76,11 +94,18 @@ pub struct ArgWalker {
     flag_yielded: Option<String>,
 }
 
+/**
+Item returned from [`ArgWalker::take_item`].
+*/
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Item<'a> {
     Flag(&'a str),
     Word(&'a str),
 }
+
+/**
+Item returned from [`ArgWalker::take_item_os`].
+*/
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub enum ItemOs<'a> {
     Flag(&'a str),
@@ -105,12 +130,21 @@ impl fmt::Display for ItemOs<'_> {
     }
 }
 
+/**
+Error type for `ArgWalker`.
+*/
 #[derive(Debug, Clone, Error, PartialEq, Eq)]
 pub enum ArgError {
+    /// Argument could not be decoded as valid Unicode.
     #[error("invalid unicode in argument {0:?}")]
     InvalidUnicode(OsString),
+    /// Returned by [`ArgWalker::take_item`] and [`ArgWalker::take_item_os`]
+    /// if the previous long option has a parameter which has not been
+    /// retrieved with [`ArgWalker::parameter`], for example `--fruit=banana`.
     #[error("unexpected parameter for flag {0}")]
     UnexpectedParameter(String),
+    /// Returned by [`ArgWalker::parameter`] and [`ArgWalker::parameter_os`]
+    /// if no parameter is available, for example on `-f` in  `-f -v`.
     #[error("parameter missing for flag {0}")]
     ParameterMissing(String),
 }
@@ -136,6 +170,22 @@ enum State {
 use State::*;
 
 impl ArgWalker {
+    /// Construct a new [`ArgWalker`].
+    ///
+    /// # Examples
+    ///
+    /// When testing
+    /// ```
+    /// # use argwalker::ArgWalker;
+    /// let args = ArgWalker::new(&["foo", "bar", "baz"]);
+    /// ```
+    ///
+    /// In production
+    /// ```
+    /// # use argwalker::ArgWalker;
+    /// use std::env;
+    /// let args = ArgWalker::new(env::args_os());
+    /// ```
     pub fn new<S, T>(args: T) -> Self
     where
         T: IntoIterator<Item = S>,
@@ -144,15 +194,12 @@ impl ArgWalker {
         let arg_vec: Vec<OsString> = args.into_iter().map(OsString::from).collect();
         let mut next_args = arg_vec.into_iter();
         let state = Self::state_from_arg(next_args.next());
-        let hold_os = Default::default();
-        let hold = Default::default();
-        let flag_yielded = None;
         ArgWalker {
             next_args,
             state,
-            hold_os,
-            hold,
-            flag_yielded,
+            hold_os: Default::default(),
+            hold: Default::default(),
+            flag_yielded: None,
         }
     }
 
@@ -200,10 +247,30 @@ impl ArgWalker {
         }
     }
 
+    /// Look at the upcoming item in [`String`] form without moving on to the next
+    ///
+    /// # Example
+    /// ```
+    /// # use argwalker::{ArgWalker,Item};
+    /// let mut args = ArgWalker::new(&["--foo", "--bar"]);
+    /// assert_eq!(args.peek_item(), Ok(Some(Item::Flag("--foo"))));
+    /// assert_eq!(args.peek_item(), Ok(Some(Item::Flag("--foo")))); // didn't change
+    /// ```
     pub fn peek_item(&self) -> Result<Option<Item<'_>>, ArgError> {
         unicode_item_option_result(self.peek_item_os())
     }
 
+    /// Look at the upcoming item in [`OsString`] form without moving on to the next
+    ///
+    /// # Example
+    /// ```
+    /// # use argwalker::{ArgWalker,ItemOs};
+    /// # use std::ffi::OsString;
+    /// let mut args = ArgWalker::new(&["foo", "--bar"]);
+    /// let foo = OsString::from("foo");
+    /// assert_eq!(args.peek_item_os(), Ok(Some(ItemOs::Word(&foo))));
+    /// assert_eq!(args.peek_item_os(), Ok(Some(ItemOs::Word(&foo)))); // didn't change
+    /// ```
     pub fn peek_item_os(&self) -> Result<Option<ItemOs<'_>>, ArgError> {
         use ItemOs::*;
 
@@ -217,10 +284,31 @@ impl ArgWalker {
         }
     }
 
+    /// Retrieve the upcoming item in [`String`] form and move on to the next
+    ///
+    /// # Example
+    /// ```
+    /// # use argwalker::{ArgWalker,Item};
+    /// # use std::ffi::OsString;
+    /// let mut args = ArgWalker::new(&["foo", "--bar"]);
+    /// assert_eq!(args.take_item(), Ok(Some(Item::Word("foo"))));
+    /// assert_eq!(args.take_item(), Ok(Some(Item::Flag("--bar"))));
+    /// ```
     pub fn take_item(&mut self) -> Result<Option<Item<'_>>, ArgError> {
         unicode_item_option_result(self.take_item_os())
     }
 
+    /// Retrieve the upcoming item in [`OsString`] form and move on to the next
+    ///
+    /// # Example
+    /// ```
+    /// # use argwalker::{ArgWalker,ItemOs};
+    /// # use std::ffi::OsString;
+    /// let mut args = ArgWalker::new(&["foo", "--bar"]);
+    /// let foo = OsString::from("foo");
+    /// assert_eq!(args.take_item_os(), Ok(Some(ItemOs::Word(&foo))));
+    /// assert_eq!(args.take_item_os(), Ok(Some(ItemOs::Flag("--bar"))));
+    /// ```
     pub fn take_item_os(&mut self) -> Result<Option<ItemOs<'_>>, ArgError> {
         use ItemOs::*;
         use State::*;
@@ -252,6 +340,7 @@ impl ArgWalker {
                 tail,
             } => {
                 // flag is "-X" where X is the first letter of letters.
+                // might be unicode so .len() is not necessarily 2.
                 let other_letters = &letters[flag.len() - 1..];
                 let st =
                     state_shorts(other_letters, tail).unwrap_or_else(|| self.process_next_arg());
@@ -282,6 +371,32 @@ impl ArgWalker {
         result
     }
 
+    /// Returns `true` if a parameter is available.
+    ///
+    /// Parameter `free_standing` controls whether a subsequent word will also
+    /// be considered a parameter.
+    ///
+    /// # Examples
+    ///
+    /// With `free_standing == true`:
+    /// ```
+    /// # use argwalker::{ArgWalker,Item};
+    /// # use Item::*;
+    /// let mut args = ArgWalker::new(&["-fbanana"]);
+    /// assert_eq!(args.take_item(), Ok(Some(Flag("-f"))));
+    /// assert_eq!(args.has_parameter(true), true);
+    /// assert_eq!(args.parameter(true), Ok(Some("banana".to_string())));
+    ///
+    /// let mut args = ArgWalker::new(&["-f", "banana"]);
+    /// assert_eq!(args.take_item(), Ok(Some(Flag("-f"))));
+    /// assert_eq!(args.has_parameter(true), true);
+    /// assert_eq!(args.parameter(true), Ok(Some("banana".to_string())));
+    ///
+    /// let mut args = ArgWalker::new(&["-f", "-v"]);
+    /// assert_eq!(args.take_item(), Ok(Some(Flag("-f"))));
+    /// assert_eq!(args.has_parameter(true), false);
+    /// assert_eq!(args.take_item(), Ok(Some(Flag("-v"))));
+    /// ```
     pub fn has_parameter(&self, free_standing: bool) -> bool {
         match &self.state {
             LongParm { .. } => true,

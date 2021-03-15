@@ -27,55 +27,69 @@ fn from_wide(wide: &[u16]) -> OsString {
 pub fn split_valid(s: &OsStr) -> (String, OsString) {
     let wide = to_wide(s);
 
-    let valid_to = find_first_invalid(&wide).unwrap_or(wide.len());
-    let valid_head = String::from_utf16(&wide[..valid_to]).unwrap();
-    let invalid_tail = from_wide(&wide[valid_to..]);
-
+    let valid_head;
+    let invalid_tail;
+    if let Ok(s) = s.to_os_string().into_string() {
+        valid_head = s;
+        invalid_tail = OsString::from("");
+    } else {
+        let valid_to = find_first_invalid(&wide)
+            .expect("find_first_invalid_should return Some if OsString::into_string() returns Err");
+        valid_head = String::from_utf16(&wide[..valid_to]).unwrap();
+        invalid_tail = from_wide(&wide[valid_to..]);
+    }
     (valid_head, invalid_tail)
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-enum Utf16Group {
+enum Kind {
     LowSurrogate,
     HighSurrogate,
     Rest,
 }
 
-impl Utf16Group {
+impl Kind {
     fn of(unit: u16) -> Self {
+        use Kind::*;
         match unit {
-            0x0000..=0xD7FF => Utf16Group::Rest,
-            0xD800..=0xDBFF => Utf16Group::HighSurrogate,
-            0xDC00..=0xDFFF => Utf16Group::LowSurrogate,
-            0xE000..=0xFFFF => Utf16Group::Rest,
+            0x0000..=0xD7FF => Rest,
+            0xD800..=0xDBFF => HighSurrogate,
+            0xDC00..=0xDFFF => LowSurrogate,
+            0xE000..=0xFFFF => Rest,
         }
     }
 }
 
 fn find_first_invalid(units: &[u16]) -> Option<usize> {
-    use Utf16Group::*;
+    use Kind::*;
 
     if units.is_empty() {
         return None;
     }
 
-    if Utf16Group::of(units[0]) == LowSurrogate {
+    if Kind::of(units[0]) == LowSurrogate {
+        // should be preceded by HighSurrogate
         return Some(0);
     }
 
     for (i, pair) in units.windows(2).enumerate() {
-        let first = Utf16Group::of(pair[0]);
-        let second = Utf16Group::of(pair[1]);
+        let first = Kind::of(pair[0]);
+        let second = Kind::of(pair[1]);
         match (first, second) {
-            (HighSurrogate, LowSurrogate) => {}
+            // Exactly right:
+            (HighSurrogate, LowSurrogate) => (),
+            // High MUST be followed by Low
             (HighSurrogate, _other) => return Some(i),
+            // Low MUST be preceeded by High
             (_other, LowSurrogate) => return Some(i + 1),
-            (_, _) => {}
+            // Everything else is OK
+            (_, _) => (),
         }
     }
 
     let last_idx = units.len() - 1;
-    if Utf16Group::of(units[last_idx]) == HighSurrogate {
+    if Kind::of(units[last_idx]) == HighSurrogate {
+        // should be followed by LowSurrogate
         return Some(last_idx);
     }
 
@@ -84,6 +98,7 @@ fn find_first_invalid(units: &[u16]) -> Option<usize> {
 
 #[test]
 fn test_find_first_invalid() {
+    // example code units
     let ok = &[0x0000, 0x0040, 0xD7FF, 0xE000, 0xFFFF];
     let hi = &[0xD800, 0xD840, 0xDBFF];
     let lo = &[0xDC00, 0xDC40, 0xDFFF];

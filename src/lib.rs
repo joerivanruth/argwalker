@@ -51,12 +51,15 @@ usually but not necessarily can be decoded as UTF-16.
 
 use std::default::Default;
 use std::ffi::{OsStr, OsString};
-use std::fmt;
 use std::mem;
 use std::str;
 use std::vec;
 
 use thiserror::Error;
+
+mod item;
+
+use item::{unicode_item_option_result, Item, ItemOs};
 
 // Always include both oschars_unix and oschars_windows so they both get
 // type checked as much as possible.
@@ -92,42 +95,6 @@ pub struct ArgWalker {
     hold_os: OsString,
     hold: String,
     flag_yielded: Option<String>,
-}
-
-/**
-Item returned from [`ArgWalker::take_item`].
-*/
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
-pub enum Item<'a> {
-    Flag(&'a str),
-    Word(&'a str),
-}
-
-/**
-Item returned from [`ArgWalker::take_item_os`].
-*/
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
-pub enum ItemOs<'a> {
-    Flag(&'a str),
-    Word(&'a OsStr),
-}
-
-impl fmt::Display for Item<'_> {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Item::Flag(flag) => flag.fmt(f),
-            Item::Word(word) => word.fmt(f),
-        }
-    }
-}
-
-impl fmt::Display for ItemOs<'_> {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            ItemOs::Flag(flag) => flag.fmt(f),
-            ItemOs::Word(word) => word.to_string_lossy().fmt(f),
-        }
-    }
 }
 
 /**
@@ -470,29 +437,6 @@ impl ArgWalker {
             _ => unreachable!(),
         }
     }
-}
-
-pub fn unicode_item(item: ItemOs<'_>) -> Result<Item<'_>, ArgError> {
-    match item {
-        ItemOs::Flag(f) => Ok(Item::Flag(f)),
-        ItemOs::Word(w) => match w.to_str() {
-            Some(s) => Ok(Item::Word(s)),
-            None => Err(ArgError::InvalidUnicode(OsString::from(w))),
-        },
-    }
-}
-
-pub fn unicode_item_option(item_opt: Option<ItemOs<'_>>) -> Result<Option<Item<'_>>, ArgError> {
-    match item_opt {
-        None => Ok(None),
-        Some(item) => unicode_item(item).map(Some),
-    }
-}
-
-pub fn unicode_item_option_result(
-    item_opt_res: Result<Option<ItemOs<'_>>, ArgError>,
-) -> Result<Option<Item<'_>>, ArgError> {
-    item_opt_res.and_then(unicode_item_option)
 }
 
 fn state_shorts(letters: &str, tail: OsString) -> Option<State> {

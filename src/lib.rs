@@ -61,15 +61,7 @@ mod item;
 
 use item::{unicode_item_option_result, Item, ItemOs};
 
-// Always include both oschars_unix and oschars_windows so they both get
-// type checked as much as possible.
-// Then pick the appropriate implementation.
-mod oschars_unix;
-mod oschars_windows;
-#[cfg(unix)]
-use oschars_unix::split_valid;
-#[cfg(windows)]
-use oschars_windows::split_valid;
+mod oschars;
 
 /**
 Command line argument helper.
@@ -181,7 +173,7 @@ impl ArgWalker {
             }
             Some(s) => s,
         };
-        let (head, tail) = split_valid(&os_arg);
+        let (head, tail) = oschars::split_valid(&os_arg);
 
         if os_arg == "-" {
             NotOption(os_arg)

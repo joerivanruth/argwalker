@@ -58,10 +58,12 @@ use std::vec;
 use thiserror::Error;
 
 mod item;
-
 use item::{unicode_item_option_result, Item, ItemOs};
 
+mod corewalker;
 mod oschars;
+
+pub use crate::corewalker::CoreWalker;
 
 /**
 Command line argument helper.

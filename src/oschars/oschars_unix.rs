@@ -41,3 +41,9 @@ pub fn split_valid(s: &OsStr) -> (String, OsString) {
 
     (valid_head.to_string(), invalid_tail.to_os_string())
 }
+
+pub fn bad_text(prefix: &str) -> OsString {
+    let mut s = OsString::from(prefix);
+    s.push(from_bytes(&[0xFF]).to_os_string());
+    s
+}

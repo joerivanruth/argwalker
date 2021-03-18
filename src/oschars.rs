@@ -5,7 +5,11 @@ mod oschars_unix;
 mod oschars_windows;
 
 #[cfg(unix)]
+pub use oschars_unix::bad_text;
+#[cfg(unix)]
 pub use oschars_unix::split_valid;
 
+#[cfg(windows)]
+pub use oschars_windows::bad_text;
 #[cfg(windows)]
 pub use oschars_windows::split_valid;

@@ -196,3 +196,9 @@ fn test_find_first_invalid() {
     verify(&[hi, lo, lo, hi], Some(2));
     verify(&[hi, lo, lo, lo], Some(2));
 }
+
+pub fn bad_text(prefix: &str) -> OsString {
+    let mut s = OsString::from(prefix);
+    s.push(from_wide(&[0xD800, 0xD840]));
+    s
+}

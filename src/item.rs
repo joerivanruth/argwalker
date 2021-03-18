@@ -54,9 +54,3 @@ pub fn unicode_item_option(item_opt: Option<ItemOs<'_>>) -> Result<Option<Item<'
         Some(item) => unicode_item(item).map(Some),
     }
 }
-
-pub fn unicode_item_option_result(
-    item_opt_res: Result<Option<ItemOs<'_>>, ArgError>,
-) -> Result<Option<Item<'_>>, ArgError> {
-    item_opt_res.and_then(unicode_item_option)
-}

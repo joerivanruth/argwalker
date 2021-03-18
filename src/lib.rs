@@ -49,21 +49,17 @@ usually but not necessarily can be decoded as UTF-16.
 
 */
 
-use std::default::Default;
 use std::ffi::{OsStr, OsString};
-use std::mem;
-use std::str;
-use std::vec;
 
+use corewalker::CoreWalker;
 use thiserror::Error;
 
 mod item;
-use item::{unicode_item_option_result, Item, ItemOs};
+pub use item::{Item, ItemOs};
+use item::unicode_item_option;
 
 mod corewalker;
 mod oschars;
-
-pub use crate::corewalker::CoreWalker;
 
 /**
 Command line argument helper.
@@ -84,11 +80,7 @@ call to [`.take_item()`][ArgWalker::take_item] will yield [`ArgError::Unexpected
 All [`String`] returning methods have a `_os` variant which returns an [`OsString`] instead.
 */
 pub struct ArgWalker {
-    next_args: vec::IntoIter<OsString>,
-    state: State,
-    hold_os: OsString,
-    hold: String,
-    flag_yielded: Option<String>,
+    core: CoreWalker,
 }
 
 /**
@@ -110,26 +102,6 @@ pub enum ArgError {
     ParameterMissing(String),
 }
 
-enum State {
-    Long {
-        flag: String,
-        parm: Option<OsString>,
-    },
-    LongParm {
-        flag: String,
-        parm: OsString,
-    },
-    Shorts {
-        letters: String,
-        flag: String, // first letter of letters, with '-' prepended
-        tail: OsString,
-    },
-    NotOption(OsString),
-    Finished,
-    Failed(ArgError),
-}
-use State::*;
-
 impl ArgWalker {
     /// Construct a new [`ArgWalker`].
     ///
@@ -150,61 +122,10 @@ impl ArgWalker {
     pub fn new<S, T>(args: T) -> Self
     where
         T: IntoIterator<Item = S>,
-        OsString: From<S>,
+        S: AsRef<OsStr>,
     {
-        let arg_vec: Vec<OsString> = args.into_iter().map(OsString::from).collect();
-        let mut next_args = arg_vec.into_iter();
-        let state = Self::state_from_arg(next_args.next());
         ArgWalker {
-            next_args,
-            state,
-            hold_os: Default::default(),
-            hold: Default::default(),
-            flag_yielded: None,
-        }
-    }
-
-    fn process_next_arg(&mut self) -> State {
-        Self::state_from_arg(self.next_args.next())
-    }
-
-    fn state_from_arg(os_arg_opt: Option<OsString>) -> State {
-        let os_arg = match os_arg_opt {
-            None => {
-                return Finished;
-            }
-            Some(s) => s,
-        };
-        let (head, tail) = oschars::split_valid(&os_arg);
-
-        if os_arg == "-" {
-            NotOption(os_arg)
-        } else if head.starts_with("--") {
-            if let Some(idx) = head.find("=") {
-                // long option with argument
-                let flag = head[..idx].to_string();
-                let mut parm = OsString::from(&head[idx + 1..]);
-                parm.push(tail);
-                Long {
-                    flag,
-                    parm: Some(parm),
-                }
-            } else {
-                // long option without argument, must be valid unicode
-                if tail.is_empty() {
-                    Long {
-                        flag: head.to_string(),
-                        parm: None,
-                    }
-                } else {
-                    Failed(ArgError::InvalidUnicode(os_arg))
-                }
-            }
-        } else if head.starts_with("-") {
-            state_shorts(&head[1..], OsString::from(tail)).unwrap()
-        } else {
-            // non-flag argument
-            NotOption(os_arg)
+            core: CoreWalker::new(args),
         }
     }
 
@@ -218,7 +139,7 @@ impl ArgWalker {
     /// assert_eq!(args.peek_item(), Ok(Some(Item::Flag("--foo")))); // didn't change
     /// ```
     pub fn peek_item(&self) -> Result<Option<Item<'_>>, ArgError> {
-        unicode_item_option_result(self.peek_item_os())
+        self.peek_item_os().and_then(unicode_item_option)
     }
 
     /// Look at the upcoming item in [`OsString`] form without moving on to the next
@@ -233,16 +154,7 @@ impl ArgWalker {
     /// assert_eq!(args.peek_item_os(), Ok(Some(ItemOs::Word(&foo)))); // didn't change
     /// ```
     pub fn peek_item_os(&self) -> Result<Option<ItemOs<'_>>, ArgError> {
-        use ItemOs::*;
-
-        match &self.state {
-            Long { flag, .. } => Ok(Some(Flag(&flag))),
-            LongParm { flag, .. } => Err(ArgError::UnexpectedParameter(flag.to_string())),
-            Shorts { flag, .. } => Ok(Some(Flag(&flag))),
-            NotOption(w) => Ok(Some(Word(&w))),
-            Finished => Ok(None),
-            Failed(e) => Err(e.clone()),
-        }
+        self.core.upcoming()
     }
 
     /// Retrieve the upcoming item in [`String`] form and move on to the next
@@ -256,7 +168,7 @@ impl ArgWalker {
     /// assert_eq!(args.take_item(), Ok(Some(Item::Flag("--bar"))));
     /// ```
     pub fn take_item(&mut self) -> Result<Option<Item<'_>>, ArgError> {
-        unicode_item_option_result(self.take_item_os())
+        self.take_item_os().and_then(unicode_item_option)
     }
 
     /// Retrieve the upcoming item in [`OsString`] form and move on to the next
@@ -271,65 +183,7 @@ impl ArgWalker {
     /// assert_eq!(args.take_item_os(), Ok(Some(ItemOs::Flag("--bar"))));
     /// ```
     pub fn take_item_os(&mut self) -> Result<Option<ItemOs<'_>>, ArgError> {
-        use ItemOs::*;
-        use State::*;
-
-        let mut state = State::Finished;
-        mem::swap(&mut self.state, &mut state);
-        let (new_state, result) = match state {
-            Long {
-                flag,
-                parm: Some(p),
-            } => {
-                self.hold = flag.clone();
-                (LongParm { flag, parm: p }, Ok(Some(Flag(&self.hold))))
-            }
-
-            Long { flag, parm: None } => {
-                self.hold = flag.clone();
-                (self.process_next_arg(), Ok(Some(Flag(&self.hold))))
-            }
-
-            LongParm { flag, .. } => {
-                let err = ArgError::UnexpectedParameter(flag);
-                (Failed(err.clone()), Err(err))
-            }
-
-            Shorts {
-                flag,
-                letters,
-                tail,
-            } => {
-                // flag is "-X" where X is the first letter of letters.
-                // might be unicode so .len() is not necessarily 2.
-                let other_letters = &letters[flag.len() - 1..];
-                let st =
-                    state_shorts(other_letters, tail).unwrap_or_else(|| self.process_next_arg());
-                self.hold = flag;
-                (st, Ok(Some(Flag(&self.hold))))
-            }
-
-            NotOption(w) => {
-                self.hold_os = w;
-                (
-                    self.process_next_arg(),
-                    Ok(Some(Word(&self.hold_os as &OsStr))),
-                )
-            }
-
-            Finished => (Finished, Ok(None)),
-
-            Failed(e) => (Failed(e.clone()), Err(e)),
-        };
-        self.state = new_state;
-
-        match result {
-            Ok(Some(Flag(f))) => self.flag_yielded = Some(f.to_string()),
-            Ok(_) => self.flag_yielded = None,
-            _ => {}
-        }
-
-        result
+        self.core.advance()
     }
 
     /// Returns `true` if a parameter is available.
@@ -359,12 +213,17 @@ impl ArgWalker {
     /// assert_eq!(args.take_item(), Ok(Some(Flag("-v"))));
     /// ```
     pub fn has_parameter(&self, free_standing: bool) -> bool {
-        match &self.state {
-            LongParm { .. } => true,
-            Shorts { letters, tail, .. } => !(letters.is_empty() && tail.is_empty()),
-            NotOption(_) => free_standing,
-            _ => false,
+        if self.core.can_parameter() {
+            return true;
         }
+
+        if free_standing {
+            if let Ok(Some(ItemOs::Word(_))) = self.core.upcoming() {
+                return true;
+            }
+        }
+
+        false
     }
 
     pub fn parameter(&mut self, free_standing: bool) -> Result<Option<String>, ArgError> {
@@ -379,25 +238,26 @@ impl ArgWalker {
     }
 
     pub fn parameter_os(&mut self, free_standing: bool) -> Result<Option<OsString>, ArgError> {
-        let mut old_state = Finished; // dummy
-        mem::swap(&mut old_state, &mut self.state);
-        let (new_state, result) = match old_state {
-            Failed(err) => (Failed(err.clone()), Err(err)),
+        match self.core.parameter() {
+            Some(p) => return Ok(Some(p.to_os_string())),
+            None => {}
+        }
 
-            LongParm { parm, .. } => (self.process_next_arg(), Ok(Some(parm))),
+        if !free_standing {
+            return Ok(None);
+        }
 
-            Shorts { letters, tail, .. } => {
-                let mut parm = OsString::from(letters);
-                parm.push(tail);
-                (self.process_next_arg(), Ok(Some(parm)))
-            }
-
-            NotOption(w) if free_standing => (self.process_next_arg(), Ok(Some(w))),
-
-            other_state => (other_state, Ok(None)),
+        let item = match self.core.upcoming()? {
+            Some(ItemOs::Word(_)) => self.core.advance(),
+            _ => return Ok(None),
         };
-        self.state = new_state;
-        result
+
+        // we know it's a Word, just have to convince the type checker
+        if let Ok(Some(ItemOs::Word(w))) = item {
+            Ok(Some(w.to_os_string()))
+        } else {
+            panic!("upcoming said Ok(Some(Word)) but I got {:?}", item)
+        }
     }
 
     pub fn required_parameter(&mut self, free_standing: bool) -> Result<String, ArgError> {
@@ -406,15 +266,14 @@ impl ArgWalker {
     }
 
     pub fn required_parameter_os(&mut self, free_standing: bool) -> Result<OsString, ArgError> {
-        match self.parameter_os(free_standing) {
-            Ok(Some(s)) => Ok(s),
-            Ok(None) => Err(ArgError::ParameterMissing(
-                self.flag_yielded
-                    .as_ref()
-                    .cloned()
-                    .expect("should only be called after flag"),
-            )),
-            Err(e) => Err(e),
+        if let Some(p) = self.parameter_os(free_standing)? {
+            return Ok(p);
+        }
+
+        if let Some(flag) = self.core.current_flag() {
+            Err(ArgError::ParameterMissing(flag.to_string()))
+        } else {
+            panic!(".required_parameter can only be called right after a flag")
         }
     }
 
@@ -430,23 +289,5 @@ impl ArgWalker {
             Some(ItemOs::Flag(f)) => return Ok(Some(f)),
             _ => unreachable!(),
         }
-    }
-}
-
-fn state_shorts(letters: &str, tail: OsString) -> Option<State> {
-    if let Some(first) = letters.chars().next() {
-        let mut flag = String::with_capacity(5);
-        flag.push('-');
-        flag.push(first);
-        let letters = letters.to_string();
-        Some(State::Shorts {
-            flag,
-            letters,
-            tail,
-        })
-    } else if tail.is_empty() {
-        None
-    } else {
-        Some(Failed(ArgError::InvalidUnicode(tail)))
     }
 }

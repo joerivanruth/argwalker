@@ -276,10 +276,15 @@ impl CoreWalker {
         new_state
     }
 
-    pub fn must_parameter(&self) -> bool {
+    pub fn current_flag(&self) -> Option<&str> {
         match &self.state {
-            State::ParmFlag { taken: false, .. } => true,
-            _ => false,
+            State::NoFlag { .. } => None,
+            State::Flag { flag } => Some(&flag),
+            State::ParmFlag { flag, .. } => Some(&flag),
+            State::SplitFlag { flag, .. } => Some(&flag),
+            State::ErrorState(_) => None,
+            State::EndState => None,
+            State::Initial => None,
         }
     }
 
@@ -445,7 +450,6 @@ mod tests {
         assert_eq!(walker.advance(), Ok(Some(Flag("-v"))));
 
         // consume the x as a parameter
-        assert_eq!(walker.must_parameter(), false);
         assert_eq!(walker.can_parameter(), true);
         let mut walker2 = walker.clone();
         assert_eq!(walker2.parameter(), Some(OsString::from("x").as_os_str()));
@@ -457,7 +461,6 @@ mod tests {
         assert_eq!(walker.advance(), Ok(Some(Flag("-x"))));
 
         // nothing behind the x
-        assert_eq!(walker.must_parameter(), false);
         assert_eq!(walker.can_parameter(), false);
         let mut walker2 = walker.clone();
         assert_eq!(walker2.parameter(), None);
@@ -472,7 +475,6 @@ mod tests {
             walker.upcoming(),
             Ok(Some(Word(OsString::from("foo").as_os_str())))
         );
-        assert_eq!(walker.must_parameter(), false);
         assert_eq!(walker.can_parameter(), false);
         assert_eq!(walker.parameter(), None);
 

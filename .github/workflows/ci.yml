@@ -16,16 +16,14 @@ jobs:
       run: cargo build
     - name: Run tests
       run: cargo test
-    - name: Run tests
-      run: cargo test
 
   clippy:
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v2
-    - name: Clippy
+    - name: Clean before clippy (necessary?)
       run: cargo clean
     - name: Clippy
-      run: cargo clippy
+      run: cargo clippy -- -D warnings
 
 

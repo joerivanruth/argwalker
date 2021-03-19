@@ -2,12 +2,12 @@ use std::ffi::{OsStr, OsString};
 
 #[cfg(windows)]
 fn to_wide(s: &OsStr) -> Vec<u16> {
-    std::os::unix::ffi::OsStrExt::encode_wide(s).collect()
+    std::os::windows::prelude::OsStrExt::encode_wide(s).collect()
 }
 
 #[cfg(windows)]
 fn from_wide(wide: &[u16]) -> OsString {
-    std::os::unix::ffi::OsStringExt::from_wide(wide)
+    std::os::windows::prelude::OsStringExt::from_wide(wide)
 }
 
 #[cfg(not(windows))]

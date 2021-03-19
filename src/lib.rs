@@ -51,14 +51,15 @@ usually but not necessarily can be decoded as UTF-16.
 
 use std::ffi::{OsStr, OsString};
 
+pub use argerror::ArgError;
 use corewalker::CoreWalker;
-use thiserror::Error;
 
-mod item;
 use item::unicode_item_option;
 pub use item::{Item, ItemOs};
 
+mod argerror;
 mod corewalker;
+mod item;
 mod oschars;
 
 /**
@@ -81,25 +82,6 @@ All [`String`] returning methods have a `_os` variant which returns an [`OsStrin
 */
 pub struct ArgWalker {
     core: CoreWalker,
-}
-
-/**
-Error type for `ArgWalker`.
-*/
-#[derive(Debug, Clone, Error, PartialEq, Eq)]
-pub enum ArgError {
-    /// Argument could not be decoded as valid Unicode.
-    #[error("invalid unicode in argument {0:?}")]
-    InvalidUnicode(OsString),
-    /// Returned by [`ArgWalker::take_item`] and [`ArgWalker::take_item_os`]
-    /// if the previous long option has a parameter which has not been
-    /// retrieved with [`ArgWalker::parameter`], for example `--fruit=banana`.
-    #[error("unexpected parameter for flag {0}")]
-    UnexpectedParameter(String),
-    /// Returned by [`ArgWalker::parameter`] and [`ArgWalker::parameter_os`]
-    /// if no parameter is available, for example on `-f` in  `-f -v`.
-    #[error("parameter missing for flag {0}")]
-    ParameterMissing(String),
 }
 
 impl ArgWalker {

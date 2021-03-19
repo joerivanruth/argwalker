@@ -299,7 +299,7 @@ impl CoreWalker {
                 Some(parameter.as_os_str())
             }
             State::SplitFlag { ref mut taken, .. } => {
-                assert!(self.args.len() > 0);
+                assert!(self.args.is_empty().not());
                 let parm = match &self.args[0] {
                     Parsed::Short { flags } | Parsed::ShortTail { flags, .. } => {
                         *taken = true;

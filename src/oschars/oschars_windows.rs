@@ -1,5 +1,3 @@
-#![allow(dead_code)]
-
 use std::ffi::{OsStr, OsString};
 
 #[cfg(windows)]
@@ -24,6 +22,7 @@ fn from_wide(wide: &[u16]) -> OsString {
     unimplemented!("from_wide only implemented on Windows")
 }
 
+#[allow(dead_code)]
 pub fn split_valid(s: &OsStr) -> (String, OsString) {
     let wide = to_wide(s);
 
@@ -197,6 +196,7 @@ fn test_find_first_invalid() {
     verify(&[hi, lo, lo, lo], Some(2));
 }
 
+#[allow(dead_code)]
 pub fn bad_text(prefix: &str) -> OsString {
     let mut s = OsString::from(prefix);
     s.push(from_wide(&[0xD800, 0xD840]));

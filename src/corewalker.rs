@@ -1,4 +1,8 @@
-use std::{ffi::{OsStr, OsString}, mem, ops::Not};
+use std::{
+    ffi::{OsStr, OsString},
+    mem,
+    ops::Not,
+};
 
 use crate::{item::ItemOs, ArgError};
 
@@ -286,7 +290,10 @@ impl CoreWalker {
     }
 
     pub fn can_parameter(&self) -> bool {
-        matches!(&self.state, State::ParmFlag { .. } | State::SplitFlag { .. })
+        matches!(
+            &self.state,
+            State::ParmFlag { .. } | State::SplitFlag { .. }
+        )
     }
 
     pub fn parameter(&mut self) -> Option<&OsStr> {

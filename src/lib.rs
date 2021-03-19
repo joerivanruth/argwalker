@@ -55,8 +55,8 @@ use corewalker::CoreWalker;
 use thiserror::Error;
 
 mod item;
-pub use item::{Item, ItemOs};
 use item::unicode_item_option;
+pub use item::{Item, ItemOs};
 
 mod corewalker;
 mod oschars;
@@ -239,7 +239,7 @@ impl ArgWalker {
 
     pub fn parameter_os(&mut self, free_standing: bool) -> Result<Option<OsString>, ArgError> {
         if let Some(p) = self.core.parameter() {
-            return Ok(Some(p.to_os_string()))
+            return Ok(Some(p.to_os_string()));
         }
 
         if !free_standing {

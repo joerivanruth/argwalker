@@ -8,8 +8,18 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
+
   test_linux:
     runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v2
+    - name: Build
+      run: cargo build
+    - name: Run tests
+      run: cargo test
+
+  test_windows:
+    runs-on: windows-latest
     steps:
     - uses: actions/checkout@v2
     - name: Build

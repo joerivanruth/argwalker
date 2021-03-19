@@ -1,7 +1,4 @@
-use std::{
-    ffi::{OsStr, OsString},
-    mem,
-};
+use std::{ffi::{OsStr, OsString}, mem, ops::Not};
 
 use crate::{item::ItemOs, ArgError};
 
@@ -40,7 +37,7 @@ impl Parsed {
             Parsed::Arg(OsString::from(head))
         } else if head.starts_with("--") {
             Parsed::parse_long(head, tail)
-        } else if head.starts_with("-") {
+        } else if head.starts_with('-') {
             if tail.is_empty() {
                 Parsed::new_short(head)
             } else {
@@ -189,9 +186,9 @@ enum State {
     },
 
     /// The previously returned item was an error.
-    ErrorState(ArgError),
+    ErrorSeen(ArgError),
 
-    EndState,
+    EndSeen,
 
     Initial,
 }
@@ -204,8 +201,8 @@ impl State {
             State::Flag { flag } => flag,
             State::ParmFlag { flag, .. } => flag,
             State::SplitFlag { flag, .. } => flag,
-            State::ErrorState(err) => return Err(err.clone()),
-            State::EndState => return Ok(None),
+            State::ErrorSeen(err) => return Err(err.clone()),
+            State::EndSeen => return Ok(None),
             State::Initial => panic!("as_item should never get invoked while in state Initial"),
         };
         Ok(Some(ItemOs::Flag(flag)))
@@ -225,7 +222,7 @@ impl CoreWalker {
         T: IntoIterator<Item = S>,
         S: AsRef<OsStr>,
     {
-        let args: Vec<Parsed> = args.into_iter().map(|s| Parsed::new(s)).collect();
+        let args: Vec<Parsed> = args.into_iter().map(Parsed::new).collect();
         let state = State::Initial;
         let preview = Self::compute_preview(&State::Initial, args.first());
         CoreWalker {
@@ -240,7 +237,7 @@ impl CoreWalker {
         mem::swap(&mut st, &mut self.state);
         self.state = match st {
             State::SplitFlag { flag, taken: true } => {
-                assert!(self.args.len() > 0);
+                assert!(self.args.is_empty().not());
                 self.args.remove(0);
                 State::Flag { flag }
             }
@@ -282,17 +279,14 @@ impl CoreWalker {
             State::Flag { flag } => Some(&flag),
             State::ParmFlag { flag, .. } => Some(&flag),
             State::SplitFlag { flag, .. } => Some(&flag),
-            State::ErrorState(_) => None,
-            State::EndState => None,
+            State::ErrorSeen(_) => None,
+            State::EndSeen => None,
             State::Initial => None,
         }
     }
 
     pub fn can_parameter(&self) -> bool {
-        match &self.state {
-            State::ParmFlag { .. } | State::SplitFlag { .. } => true,
-            _ => false,
-        }
+        matches!(&self.state, State::ParmFlag { .. } | State::SplitFlag { .. })
     }
 
     pub fn parameter(&mut self) -> Option<&OsStr> {
@@ -320,7 +314,7 @@ impl CoreWalker {
         };
 
         if shift_preview {
-            self.preview_state = Self::compute_preview(&State::Initial, self.args.iter().nth(1));
+            self.preview_state = Self::compute_preview(&State::Initial, self.args.get(1));
         }
 
         parm
@@ -343,7 +337,7 @@ fn decide(state: &State, arg: Option<Parsed>) -> Decision {
             flag, taken: false, ..
         } => {
             return Decision {
-                new_state: ErrorState(ArgError::UnexpectedParameter(flag.clone())),
+                new_state: ErrorSeen(ArgError::UnexpectedParameter(flag.clone())),
                 push_back: arg,
             }
         }
@@ -360,7 +354,7 @@ fn decide(state: &State, arg: Option<Parsed>) -> Decision {
         Some(a) => a,
         None => {
             return Decision {
-                new_state: EndState,
+                new_state: EndSeen,
                 push_back: None,
             }
         }
@@ -368,7 +362,7 @@ fn decide(state: &State, arg: Option<Parsed>) -> Decision {
 
     match arg {
         Invalid(s) => Decision {
-            new_state: ErrorState(ArgError::InvalidUnicode(s)),
+            new_state: ErrorSeen(ArgError::InvalidUnicode(s)),
             push_back: None,
         },
 
@@ -417,7 +411,7 @@ fn decide(state: &State, arg: Option<Parsed>) -> Decision {
                 let mut flag = OsString::from("-");
                 flag.push(tail);
                 Decision {
-                    new_state: ErrorState(ArgError::InvalidUnicode(flag)),
+                    new_state: ErrorSeen(ArgError::InvalidUnicode(flag)),
                     push_back: None,
                 }
             } else {
@@ -432,7 +426,7 @@ fn decide(state: &State, arg: Option<Parsed>) -> Decision {
 }
 
 fn chop_off(flags: &mut String) -> String {
-    assert!(flags.starts_with("-"));
+    assert!(flags.starts_with('-'));
     let ch = flags.remove(1);
     format!("-{}", ch)
 }

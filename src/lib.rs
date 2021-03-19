@@ -238,9 +238,8 @@ impl ArgWalker {
     }
 
     pub fn parameter_os(&mut self, free_standing: bool) -> Result<Option<OsString>, ArgError> {
-        match self.core.parameter() {
-            Some(p) => return Ok(Some(p.to_os_string())),
-            None => {}
+        if let Some(p) = self.core.parameter() {
+            return Ok(Some(p.to_os_string()))
         }
 
         if !free_standing {
@@ -262,7 +261,7 @@ impl ArgWalker {
 
     pub fn required_parameter(&mut self, free_standing: bool) -> Result<String, ArgError> {
         self.required_parameter_os(free_standing)
-            .and_then(|s| s.into_string().map_err(|s| ArgError::InvalidUnicode(s)))
+            .and_then(|s| s.into_string().map_err(ArgError::InvalidUnicode))
     }
 
     pub fn required_parameter_os(&mut self, free_standing: bool) -> Result<OsString, ArgError> {
@@ -286,7 +285,7 @@ impl ArgWalker {
             }
         }
         match self.take_item_os()? {
-            Some(ItemOs::Flag(f)) => return Ok(Some(f)),
+            Some(ItemOs::Flag(f)) => Ok(Some(f)),
             _ => unreachable!(),
         }
     }

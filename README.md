@@ -1,47 +1,50 @@
 Splitargs - helper library for parsing command line arguments
 =============================================================
 
-This is not a full featured library.  For example, it does not automatically
-generate colorized help messages, etc.  Instead, this library focusses on the
-basics. In particular,
+Helper library for command line argument parsing.
 
-- splitting single-dash options into separate flags: `ls -lh` is equivalent to
-  '-l', '-h';
+Allows you to conveniently iterate over flags and other
+options. It does not provide higher level features such as parsing into structs
+or automatically generating help text. Instead, it only provides the following
+services:
 
-- unless they have an argument: `sort -t,` is equivalent to `sort
-  --field-separator=,`;
+1) Splitting combined single-dash flags such as `-xvf` into separate flags `-x`,
+   `-v` and `-f`.
 
-- likewise, with long options, the = is often optional: `--field-separator=,` is
-  then equivalent to `--field-separator ,`;
+2) Dealing with flags with arguments such as `-fbanana` or `--fruit=banana`.
+   The latter may or may not be equivalent with `--fruit banana`.
 
-- in Rust, paths should be kept in an `OsString` rather than a `String` because
-  the latter is required to decode as valid UTF-8. However, `OsString` is very
-  inconvenient to work with so whenever possible it's preferrable to work with
-  regular strings.
+3) Correctly dealing with non-unicode arguments such as filenames, while
+   still working with regular strings wherever possible.
 
+The latter is necessary because Rust strings must be valid UTF-8 but on Unix,
+filenames can contain arbitrary byte sequences which are not necessarily
+UTF-8, while on Windows, filenames are composed of 16 bit sequences that
+usually but not necessarily can be decoded as UTF-16.
 
-State machine
--------------
+# Example
 
-Struct `SplitArgs` keeps track of a list of (partially) unprocessed arguments,
-and a State.  The State is one of the following:
+```rust
+use argwalker::{ArgWalker,ArgError,Item};
+fn main() -> Result<(), ArgError> {
+    let mut w = ArgWalker::new(&["eat", "file1", "-vfbanana", "file2", "file3"]);
 
-- `Finished`. All arguments have been processed.
+    assert_eq!(w.take_item(), Ok(Some(Item::Word("eat"))));
 
-- `BeforeDouble`.  Next argument starts with two dashes.
-
-- `BeforeSingle`.  Next argument starts with a single dash.
-
-- `BeforeWord`.  Next argument does not start with a dash.
-
-- `Splitting`.  The parser has returned one or more letters from a single-dash
-  argument such as '-ltr'. Some letters are remaining and it's still unknown
-  whether the remainder is more flags or an argument to the latest returned
-  flag.
-
-- `LongArg`.  The parser has return a long (double-dash) flag which had an
-  argument that is yet to be returned.  Example: `--field-separator=,`.
-
-Methods:
-
-- `item_os() -> 
+    let mut verbose = false;
+    let mut fruit = None;
+    let mut argcount = 0;
+    while let Some(item) = w.take_item()? {
+        match item {
+            Item::Flag("-v") => verbose = true,
+            Item::Flag("-f") => fruit = Some(w.required_parameter(true)?),
+            Item::Word(w) => argcount += 1,
+            x => panic!("unexpected argument {}. Usage: bla bla bla", x)
+        }
+    }
+    assert_eq!(verbose, true);
+    assert_eq!(fruit, Some("banana".to_string()));
+    assert_eq!(argcount, 3);
+   Ok(())
+}
+```

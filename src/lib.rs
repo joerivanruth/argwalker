@@ -22,7 +22,7 @@ usually but not necessarily can be decoded as UTF-16.
 
 # Example
 
-```
+```rust
 # use argwalker::{ArgWalker,ArgError,Item};
 # fn main() -> Result<(), ArgError> {
     let mut w = ArgWalker::new(&["eat", "file1", "-vfbanana", "file2", "file3"]);

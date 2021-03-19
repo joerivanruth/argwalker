@@ -3,7 +3,7 @@ use std::{ffi::OsStr, fmt};
 use crate::ArgError;
 
 /**
-Item returned from [`ArgWalker::take_item`].
+Item returned from [`ArgWalker::take_item`][super::ArgWalker::take_item].
 */
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Item<'a> {
@@ -12,7 +12,7 @@ pub enum Item<'a> {
 }
 
 /**
-Item returned from [`ArgWalker::take_item_os`].
+Item returned from [`ArgWalker::take_item_os`][super::ArgWalker::take_item_os].
 */
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub enum ItemOs<'a> {
